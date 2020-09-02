@@ -67,9 +67,10 @@ function Modprobe_Setup() {
 	fi
 
 	local modprobe_cmd="modprobe -a ib_uverbs"
-	# known issue on sles15 and ubuntu
 	local distro=$(detect_linux_distribution)$(detect_linux_distribution_version)
-	if [[ "${distro}" =~ "sles15" || ("${distro}" =~ "ubuntu") ]]; then
+	LogMsg "Loading ib_uverbs module manually for distro: ${distro}"
+	# known issue on sles15 and ubuntu
+	if [[ "${distro}" =~ "suse" || ("${distro}" =~ "ubuntu") ]]; then
 		modprobe_cmd="${modprobe_cmd} mlx4_ib mlx5_ib || true"
 		LogMsg "Loading mlx4_ib and mlx5_ib modules with ib_uverbs module manually for distro: ${distro}"
 	fi
@@ -94,7 +95,7 @@ function Install_Dpdk_Dependencies() {
 
 	CheckIP ${install_ip}
 	if [ $? -eq 1 ]; then
-		LogErr "ERROR: must pass valid ip to Modprobe_Setup()"
+		LogErr "ERROR: must pass valid ip to Install_Dpdk_Dependencies()"
 		SetTestStateAborted
 		exit 1
 	fi

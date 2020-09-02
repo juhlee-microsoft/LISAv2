@@ -47,6 +47,7 @@ if [[ $DISTRO =~ "redhat" ]] && [ ! -z "${dpdkSrcLink+x}" ] && [[ "${dpdkSrcLink
 	fi
 else
 	LogMsg "INFO: Installing DPDK on client ${client}..."
+	Modprobe_Setup "${client}"
 	Install_Dpdk "${client}" "${clientNIC1ip}" "${serverNIC1ip}"
 fi
 
@@ -56,6 +57,8 @@ then
 else
 	LogMsg "INFO: Configuring huge pages on server ${server}..."
 	Hugepage_Setup "${server}"
+	LogMsg "INFO: Configuring modules on server ${server}..."
+	Modprobe_Setup "${server}"
 	LogMsg "INFO: Installing DPDK on server ${server}..."
 	Install_Dpdk "${server}" "${serverNIC1ip}" "${clientNIC1ip}"
 fi
