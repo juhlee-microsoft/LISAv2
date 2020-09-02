@@ -59,7 +59,7 @@ function checkCmdExitStatus ()
 		SetTestStateAborted
 		exit $exit_status
 	else
-		echo "$cmd: SUCCESS" 
+		echo "$cmd: SUCCESS"
 	fi
 }
 
@@ -107,7 +107,7 @@ runTestPmd()
 	esac
 	LogMsg "TestPmd is starting with ${pmd} PMD"
 
-	cmd="echo 'stop' | dpdk-testpmd -l 0-1 ${whitelist} ${vdev} -- -i --port-topology=chained --nb-cores 1"
+	cmd="echo 'stop' | testpmd -l 0-1 ${whitelist} ${vdev} -- -i --port-topology=chained --nb-cores 1"
 	LogMsg "$cmd"
 	eval "$cmd" > $LOGDIR/$pmd.log 2>&1
 	checkCmdExitStatus "TestPmd with ${pmd} execution"
