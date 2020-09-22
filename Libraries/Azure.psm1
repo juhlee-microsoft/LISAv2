@@ -1959,8 +1959,8 @@ Function Start-DeleteResourceGroup ([string]$RGName) {
 	return $isDeleting
 }
 Function Delete-ResourceGroup([string]$RGName, [bool]$UseExistingRG, [string]$PatternOfResourceNamePrefix) {
-	Function RemoveAzResourcesByResourceType([string] $ResourceType4iMatch) {
-		$unlockedResources | Where-Object { $_.ResourceType -imatch $ResourceType4iMatch } | ForEach-Object {
+	Function RemoveAzResourcesByResourceType([string] $ResourceType4iMatch, [object] $ResourcesToBeRemoved) {
+		$ResourcesToBeRemoved | Where-Object { $_.ResourceType -imatch $ResourceType4iMatch } | ForEach-Object {
 			try {
 				if (Remove-AzResource -ResourceGroupName $RGName -ResourceName $_.Name -ResourceType $_.ResourceType -Force) {
 					Write-LogInfo "`tDeleted resource '$($_.Name)' successfully."
@@ -2006,14 +2006,14 @@ Function Delete-ResourceGroup([string]$RGName, [bool]$UseExistingRG, [string]$Pa
 					}
 					else {
 						Write-LogInfo "Start removing resoruces from '$RGName', attempt $($attempts) ..."
-						RemoveAzResourcesByResourceType -ResourceType4iMatch '^Microsoft\.Compute/virtualMachines$'
-						RemoveAzResourcesByResourceType -ResourceType4iMatch '^Microsoft\.Compute/disks$'
-						RemoveAzResourcesByResourceType -ResourceType4iMatch '^Microsoft\.Network/networkInterfaces$'
-						RemoveAzResourcesByResourceType -ResourceType4iMatch '^Microsoft\.Network/virtualNetworks$'
-						RemoveAzResourcesByResourceType -ResourceType4iMatch '^Microsoft\.Network/loadBalancers$'
-						RemoveAzResourcesByResourceType -ResourceType4iMatch '^Microsoft\.Network/publicIPAddresses$'
-						RemoveAzResourcesByResourceType -ResourceType4iMatch '^Microsoft\.Network/networkSecurityGroups$'
-						RemoveAzResourcesByResourceType -ResourceType4iMatch '^Microsoft\..+/(?!(virtualMachines|disks|networkInterfaces|virtualNetworks|loadBalancers|publicIPAddresses|networkSecurityGroups)).+$'
+						RemoveAzResourcesByResourceType -ResourceType4iMatch '^Microsoft\.Compute/virtualMachines$' -ResourcesToBeRemoved $unlockedResources
+						RemoveAzResourcesByResourceType -ResourceType4iMatch '^Microsoft\.Compute/disks$' -ResourcesToBeRemoved $unlockedResources
+						RemoveAzResourcesByResourceType -ResourceType4iMatch '^Microsoft\.Network/networkInterfaces$' -ResourcesToBeRemoved $unlockedResources
+						RemoveAzResourcesByResourceType -ResourceType4iMatch '^Microsoft\.Network/virtualNetworks$' -ResourcesToBeRemoved $unlockedResources
+						RemoveAzResourcesByResourceType -ResourceType4iMatch '^Microsoft\.Network/loadBalancers$' -ResourcesToBeRemoved $unlockedResources
+						RemoveAzResourcesByResourceType -ResourceType4iMatch '^Microsoft\.Network/publicIPAddresses$' -ResourcesToBeRemoved $unlockedResources
+						RemoveAzResourcesByResourceType -ResourceType4iMatch '^Microsoft\.Network/networkSecurityGroups$' -ResourcesToBeRemoved $unlockedResources
+						RemoveAzResourcesByResourceType -ResourceType4iMatch '^Microsoft\..+/(?!(virtualMachines|disks|networkInterfaces|virtualNetworks|loadBalancers|publicIPAddresses|networkSecurityGroups)).+$' -ResourcesToBeRemoved $unlockedResources
 					}
 					$attempts++
 				}
