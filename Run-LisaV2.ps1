@@ -118,6 +118,7 @@ Param(
 
 	[string] $ResultDBTable = "",
 	[string] $ResultDBTestTag = "",
+	[string] $TestPassID = "",
 
 	[switch] $ExitWithZero,
 	[switch] $ForceCustom,

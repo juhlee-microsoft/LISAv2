@@ -153,16 +153,20 @@ Class AzureProvider : TestProvider
 		# M128 VM, timeout = 10 + int[128/10] = 23 minutes.
 		$Timeout = New-Timespan -Minutes ([int]($MaximumCores / 10) + 10)
 		$sw = [diagnostics.stopwatch]::StartNew()
+		$vmStatus = $null
 		foreach ($vmData in $AllVMData) {
-			$vm = Get-AzVM -ResourceGroupName $vmData.ResourceGroupName -Name $vmData.RoleName -Status
-			while (($vm.Statuses[-1].Code -ne "PowerState/running") -and ($sw.elapsed -lt $Timeout)) {
-				Write-LogInfo "VM $($vmData.RoleName) is in $($vm.Statuses[-1].Code) state, still not in running state"
-				$vm = Get-AzVM -ResourceGroupName $vmData.ResourceGroupName -Name $vmData.RoleName -Status
+			$vmStatus = Get-AzVM -ResourceGroupName $vmData.ResourceGroupName -Name $vmData.RoleName -Status
+			while (($vmStatus.Statuses[-1].Code -ne "PowerState/running") -and ($sw.elapsed -lt $Timeout)) {
+				Write-LogInfo "VM $($vmData.RoleName) is in $($vmStatus.Statuses[-1].Code) state, still not in running state"
+				Start-Sleep -Seconds 10
+				$vmStatus = Get-AzVM -ResourceGroupName $vmData.ResourceGroupName -Name $vmData.RoleName -Status
 			}
 		}
 
-		if ((Is-VmAlive -AllVMDataObject $AllVMData) -eq "True") {
-			return $true
+		if ($vmStatus -and $vmStatus.Statuses[-1].Code -eq "PowerState/running") {
+			if ((Is-VmAlive -AllVMDataObject $AllVMData -MaxRetryCount 10) -eq "True") {
+				return $true
+			}
 		}
 		return $false
 	}

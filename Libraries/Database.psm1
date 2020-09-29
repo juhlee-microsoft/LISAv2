@@ -27,7 +27,7 @@
 
 Function Get-SQLQueryOfTelemetryData ($TestPlatform, $TestLocation, $TestCategory, $TestArea, $TestName, $CurrentTestResult, `
 		$ExecutionTag, $GuestDistro, $KernelVersion, $HardwarePlatform, $LISVersion, $HostVersion, $VMSize, $VMGeneration, `
-		$Networking, $ARMImageName, $OsVHD, $LogFile, $BuildURL, $TableName) {
+		$Networking, $ARMImageName, $OsVHD, $LogFile, $BuildURL, $TableName, $TestPassID, $FailureReason) {
 	try {
 		$TestResult = $CurrentTestResult.TestResult
 		$TestSummary = $CurrentTestResult.TestSummary
@@ -48,19 +48,20 @@ Function Get-SQLQueryOfTelemetryData ($TestPlatform, $TestLocation, $TestCategor
 		else {
 			$BuildURL = ""
 		}
-		$SQLQuery = "INSERT INTO $TableName (DateTimeUTC,TestPlatform,TestLocation,TestCategory,TestArea,TestName,TestResult,SubTestName,SubTestResult,ExecutionTag,GuestDistro,KernelVersion,HardwarePlatform,LISVersion,HostVersion,VMSize,VMGeneration,Networking,ARMImage,OsVHD,LogFile,BuildURL) VALUES "
-		$SQLQuery += "('$DateTimeUTC','$TestPlatform','$TestLocation','$TestCategory','$TestArea','$TestName','$testResult','','','$ExecutionTag','$GuestDistro','$KernelVersion','$HardwarePlatform','$LISVersion','$HostVersion','$VMSize','$VMGeneration','$Networking','$ARMImageName','$OsVHD','$UploadedURL', '$BuildURL'),"
+		$SQLQuery = "INSERT INTO $TableName (DateTimeUTC,TestPlatform,TestLocation,TestCategory,TestArea,TestName,TestResult,ExecutionTag,GuestDistro,KernelVersion,HardwarePlatform,LISVersion,HostVersion,VMSize,VMGeneration,ARMImage,OsVHD,LogFile,BuildURL,TestPassID,FailureReason,TestResultDetails) VALUES "
+		$SQLQuery += "('$DateTimeUTC','$TestPlatform','$TestLocation','$TestCategory','$TestArea','$TestName','$testResult','$ExecutionTag','$GuestDistro','$KernelVersion','$HardwarePlatform','$LISVersion','$HostVersion','$VMSize','$VMGeneration','$ARMImageName','$OsVHD','$UploadedURL','$BuildURL','$TestPassID','$FailureReason',"
+		$TestResultDetailsValue = ""
+		if ($Networking) {
+			$TestResultDetailsValue += "Networking: $Networking; `r`n"
+		}
 		if ($TestSummary) {
 			foreach ($tempResult in $TestSummary.Split('>')) {
 				if ($tempResult) {
-					$tempResult = $tempResult.Trim().Replace("<br /", "").Trim()
-					$subTestResult = $tempResult.Split(":")[$tempResult.Split(":").Count - 1 ].Trim()
-					$subTestName = $tempResult.Replace("$subTestResult", "").Trim().TrimEnd(":").Trim()
-					$SQLQuery += "('$DateTimeUTC','$TestPlatform','$TestLocation','$TestCategory','$TestArea','$TestName','$testResult','$subTestName','$subTestResult','$ExecutionTag','$GuestDistro','$KernelVersion','$HardwarePlatform','$LISVersion','$HostVersion','$VMSize','$VMGeneration','$Networking','$ARMImageName','$OsVHD','$UploadedURL', '$BuildURL'),"
+					$TestResultDetailsValue += $tempResult.Trim().Replace("<br /", "; `r`n")
 				}
 			}
 		}
-		$SQLQuery = $SQLQuery.TrimEnd(',')
+		$SQLQuery += "'$TestResultDetailsValue')"
 		Write-LogInfo "Get the SQL query of test results:  done"
 		return $SQLQuery
 	}

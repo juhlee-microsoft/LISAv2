@@ -314,15 +314,16 @@ Function Trim-ErrorLogMessage($text) {
 		In all scenarios, it adds new line characters at the end.
 	#>
 
-	$maxLength = 160
-	if ($text.Length -ge $maxLength) {
-		$text = $text.Substring(0,$maxLength)
-		$splitByPeriod = $text.split(".")
-		if ($splitByPeriod.Count -gt 1) {
-			$maxLength -= $splitByPeriod[$splitByPeriod.Count - 1].Length
-			$text = $text.Substring(0,$maxLength) + ".."
-		}
-		$text = $text.Replace("'","""")
-	}
+	# $maxLength = 160
+	# if ($text.Length -ge $maxLength) {
+	# 	$text = $text.Substring(0,$maxLength)
+	# 	$splitByPeriod = $text.split(".")
+	# 	if ($splitByPeriod.Count -gt 1) {
+	# 		$maxLength -= $splitByPeriod[$splitByPeriod.Count - 1].Length
+	# 		$text = $text.Substring(0,$maxLength) + ".."
+	# 	}
+	# 	$text = $text.Replace("'","""")
+	# }
+	$text = ($text -replace "{|}", " ").Replace("'","""")
 	return $text + "`r`n"
 }

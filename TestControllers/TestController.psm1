@@ -67,6 +67,7 @@ Class TestController
 	[bool] $DeployVMPerEachTest
 	[string] $ResultDBTable
 	[string] $ResultDBTestTag
+	[string] $TestPassID
 	[bool] $UseExistingRG
 	[array] $TestCaseStatus
 	[array] $TestCasePassStatus
@@ -108,6 +109,7 @@ Class TestController
 		$this.DeployVMPerEachTest = $ParamTable["DeployVMPerEachTest"]
 		$this.ResultDBTable = $ParamTable["ResultDBTable"]
 		$this.ResultDBTestTag = $ParamTable["ResultDBTestTag"]
+		$this.TestPassID = $ParamTable["TestPassID"]
 		$this.UseExistingRG = $ParamTable["UseExistingRG"]
 		$this.EnableCodeCoverage = $ParamTable["EnableCodeCoverage"]
 		$this.VMGeneration = $ParamTable["VMGeneration"]
@@ -437,7 +439,7 @@ Class TestController
 			Write-LogInfo "==> Run test setup script if defined."
 			$this.TestProvider.RunSetup($VmData, $CurrentTestData, $testParameters, $ApplyCheckpoint)
 
-			if ($CurrentTestData.SetupConfig.OSType -notcontains "Windows") {
+			if (($CurrentTestData.SetupConfig.OSType -notcontains "Windows") -and ($this.CustomParams.VerifyKernelLogs -eq "True")) {
 				Write-LogInfo "==> Check the target machine kernel log."
 				$this.GetAndCompareOsLogs($VmData, "Initial")
 			}
@@ -498,9 +500,9 @@ Class TestController
 
 		try {
 			if ($CurrentTestData.SetupConfig.OSType -notcontains "Windows") {
-				if ($testParameters["SkipVerifyKernelLogs"] -ne "True") {
+				if ($this.CustomParams.VerifyKernelLogs -eq "True") {
 					$ret = $this.GetAndCompareOsLogs($VmData, "Final")
-					if (($testParameters["FailForLogCheck"] -eq "True") -and ($ret -eq $false) -and ($currentTestResult.TestResult -eq $global:ResultPass)) {
+					if (($ret -eq $false) -and ($currentTestResult.TestResult -eq $global:ResultPass)) {
 						$currentTestResult.TestResult = $global:ResultFail
 						Write-LogErr "Test $($CurrentTestData.TestName) fails for log check"
 						$currentTestResult.testSummary += New-ResultSummary -testResult "Test fails for log check"
@@ -510,8 +512,8 @@ Class TestController
 			$this.GetSystemBasicLogs($VmData, $global:user, $global:password, $CurrentTestData, $currentTestResult, $this.EnableTelemetry) | Out-Null
 
 			Write-LogInfo "==> Run test cleanup script if defined."
-			$collectDetailLogs = !$this.TestCasePassStatus.contains($currentTestResult.TestResult) -and ($CurrentTestData.SetupConfig.OSType -notcontains "Windows") -and $testParameters["SkipVerifyKernelLogs"] -ne "True" -and ((Is-VmAlive -AllVMDataObject $VmData -MaxRetryCount 5) -eq "True")
-			$doRemoveFiles = $this.TestCasePassStatus.contains($currentTestResult.TestResult) -and !($this.ResourceCleanup -imatch "Keep") -and ($CurrentTestData.SetupConfig.OSType -notcontains "Windows") -and $testParameters["SkipVerifyKernelLogs"] -ne "True"
+			$collectDetailLogs = (!$this.TestCasePassStatus.contains($currentTestResult.TestResult) -or $this.CustomParams.VerifyKernelLogs -eq "True") -and ($CurrentTestData.SetupConfig.OSType -notcontains "Windows") -and ((Is-VmAlive -AllVMDataObject $VmData -MaxRetryCount 5) -eq "True")
+			$doRemoveFiles = $this.TestCasePassStatus.contains($currentTestResult.TestResult) -and !($this.ResourceCleanup -imatch "Keep") -and ($CurrentTestData.SetupConfig.OSType -notcontains "Windows") -and $this.CustomParams.VerifyKernelLogs -ne "True"
 			$this.TestProvider.RunTestCaseCleanup($vmData, $CurrentTestData, $currentTestResult, $collectDetailLogs, $doRemoveFiles, `
 				$global:user, $global:password, $SetupTypeData, $testParameters)
 		} catch {
@@ -594,6 +596,17 @@ Class TestController
 						# By default set $vmData with $deployVMResults, because providers may return array of vmData directly if no errors.
 						$vmData = $deployVMResults
 						$deployErrors = Trim-ErrorLogMessage $deployVMResults.Error
+						# Az Powershell bug, and workarounds as: If deployed failed, due to some OSDisk are not deleted, try again to do deployment and only try once again
+						if ($deployErrors -imatch "Disk [\w-]+-OSDisk already exists in resource group") {
+							Write-LogWarn "Try deploy again when OSDisk is not deleted successfully from last test case deployment"
+							&$TryCleanupOnFailure -VmDataOnFailure ([ref]$vmData) -SetupTypeData $this.SetupTypeTable[$setupType]
+							$deployVMResults = $this.TestProvider.DeployVMs($this.GlobalConfig, $this.SetupTypeTable[$setupType], $currentTestCase, `
+								$currentTestCase.SetupConfig.TestLocation, $this.RGIdentifier, $this.UseExistingRG, $this.ResourceCleanup)
+							if ($deployVMResults) {
+								$vmData = $deployVMResults
+								$deployErrors = Trim-ErrorLogMessage $deployVMResults.Error
+							}
+						}
 						# override the $vmData if $deployResults give VmData specifically with property 'VmData'
 						if ($deployVMResults.Keys -and ($deployVMResults.Keys -contains "VmData")) {
 							$vmData = $deployVMResults.VmData
@@ -632,6 +645,11 @@ Class TestController
 								-testVMUser $global:user -testVMPassword $global:password
 						}
 					}
+				}
+				elseif ($vmData) {
+					# Get updated Initial Kernel for current Test Case, as last test case may updated kernel version
+					$global:InitialKernelVersion = Run-LinuxCmd -ip $vmData.PublicIP -port $vmData.SSHPort -username $global:user -password $global:password -command "uname -r"
+					Write-LogInfo "Initial Kernel Version: $global:InitialKernelVersion"
 				}
 				# Run current test case
 				Write-LogInfo "Run test case against the target machine ..."
@@ -752,13 +770,9 @@ Class TestController
 				if ($LISMatch) {
 					$LISVersion = $LISMatch.Split(":").Trim()[1]
 				}
-				$FoundLineNumber = (Select-String -Path "$global:LogDir\$($vmData.RoleName)-dmesg.txt" -Pattern "Hyper-V Host Build").LineNumber
-				if (![string]::IsNullOrEmpty($FoundLineNumber)) {
-					$ActualLineNumber = $FoundLineNumber[-1] - 1
-					$FinalLine = [string]((Get-Content -Path "$global:LogDir\$($vmData.RoleName)-dmesg.txt")[$ActualLineNumber])
-					$FinalLine = $FinalLine.Replace('; Vmbus version:4.0', '')
-					$FinalLine = $FinalLine.Replace('; Vmbus version:3.0', '')
-					$HostVersion = ($FinalLine.Split(":")[$FinalLine.Split(":").Count - 1 ]).Trim().TrimEnd(";")
+				$HostBuildMatches = Select-string -Path "$global:LogDir\$($vmData.RoleName)-dmesg.txt" -Pattern "Hyper-V\s*Host.*Build:\s*([^a-zA-Z:;\s]+)"
+				if ($HostBuildMatches) {
+					$HostVersion = $HostBuildMatches.Matches.Groups[1].Value
 				}
 			}
 		}
@@ -778,19 +792,56 @@ Class TestController
 					$dataTableName = $this.XmlSecrets.secrets.TableName
 					Write-LogInfo "Using table name from secrets: $dataTableName"
 				} else {
-					$dataTableName = "LISAv2Results"
+					#$dataTableName = "LISAv2Results"
+					$dataTableName = "LISATestTelemetry"
 				}
 
+				$failureReason = ""
+				if ($CurrentTestResult.TestSummary) {
+					switch ($CurrentTestResult.TestSummary) {
+						{ $_ -imatch "The following list of images referenced from the deployment template are not found" } {
+							$failureReason = "Image is not available when deploying the image"
+							break
+						}
+						{ $_ -imatch 'Marketplace purchase eligibilty check returned errors. See inner errors for details' } {
+							$failureReason = "Purchase Plan Error - Marketplace purchase eligibilty check returned errors"
+							break
+						}
+						{ $_ -imatch 'Reboot : FAIL' -or `
+							(
+								$_ -imatch "Template output evaluation skipped: at least one resource deployment operation failed." `
+									-and `
+								(
+									$_ -imatch "VM [^\s]+ did not start in the allotted time. The VM may still start successfully. Please check the power state later." `
+										-or `
+										$_ -imatch "VM [^\s]+ did not finish in the allotted time. The VM may still finish provisioning successfully. Please check provisioning state later." `
+										-or `
+										$_ -imatch "OS Provisioning failed for VM [^\s]+ due to an internal error."
+										# `
+										# -or `
+										# $_ -imatch "The Resource [\""']Microsoft.Compute/virtualMachines/[\w]+-role-0[\""'] under resource group [^\s]+ was not found."
+								)
+							) } {
+							$failureReason = "VM did not boot up"
+							break
+						}
+						{ $_ -imatch 'Username specified for the VM is invalid for this Linux distribution.' -or $_ -imatch 'Calling function - Upload-RemoteFile. Error in upload after 10 attempt, hence giving up' } {
+							$failureReason = "Image configuration issue"
+							break
+						}
+						Default { if ($this.TestCasePassStatus -notcontains $CurrentTestResult.TestResult) { $failureReason = "Pending Triage" }; break }
+					}
+				}
 				$SQLQuery = Get-SQLQueryOfTelemetryData -TestPlatform $global:TestPlatform -TestLocation $CurrentTestData.SetupConfig.TestLocation -TestCategory $CurrentTestData.Category `
 					-TestArea $CurrentTestData.Area -TestName $CurrentTestData.TestName -CurrentTestResult $CurrentTestResult `
 					-ExecutionTag ($global:GlobalConfig).Global.($global:TestPlatform).ResultsDatabase.testTag -GuestDistro $GuestDistro -KernelVersion $global:FinalKernelVersion `
 					-HardwarePlatform $HardwarePlatform -LISVersion $LISVersion -HostVersion $HostVersion -VMSize $VMSize -VMGeneration $VMGen -Networking $Networking `
-					-ARMImageName $CurrentTestData.SetupConfig.ARMImageName -OsVHD $global:BaseOsVHD -BuildURL $env:BUILD_URL -TableName $dataTableName
+					-ARMImageName $CurrentTestData.SetupConfig.ARMImageName -OsVHD $global:BaseOsVHD -BuildURL $env:BUILD_URL -TableName $dataTableName -TestPassID $this.TestPassID -FailureReason $failureReason
 
 				Upload-TestResultToDatabase -SQLQuery $SQLQuery
 
 				# IngestKusto may throw exceptions or log error messages, in that case, manual configuration is needed from kusto cluster service for its table schemas mapping to exising SQL database
-				Invoke-IngestKustoFromTSQL -SQLString $SQLQuery
+				# Invoke-IngestKustoFromTSQL -SQLString $SQLQuery
 			}
 			catch {
 				$line = $_.InvocationInfo.ScriptLineNumber
