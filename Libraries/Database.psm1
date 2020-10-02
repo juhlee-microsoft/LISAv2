@@ -55,7 +55,12 @@ Function Get-SQLQueryOfTelemetryData ($TestPlatform, $TestLocation, $TestCategor
 				if ($tempResult) {
 					$tempResult = $tempResult.Trim().Replace("<br /", "").Trim()
 					$subTestResult = $tempResult.Split(":")[$tempResult.Split(":").Count - 1 ].Trim()
-					$subTestName = $tempResult.Replace("$subTestResult", "").Trim().TrimEnd(":").Trim()
+					if ($subTestResult) {
+						$subTestName = $tempResult.Replace("$subTestResult", "").Trim().TrimEnd(":").Trim()
+					}
+					else {
+						$subTestName = $tempResult.Trim().TrimEnd(":").Trim()
+					}
 					$SQLQuery += "('$DateTimeUTC','$TestPlatform','$TestLocation','$TestCategory','$TestArea','$TestName','$testResult','$subTestName','$subTestResult','$ExecutionTag','$GuestDistro','$KernelVersion','$HardwarePlatform','$LISVersion','$HostVersion','$VMSize','$VMGeneration','$Networking','$ARMImageName','$OsVHD','$UploadedURL', '$BuildURL'),"
 				}
 			}
