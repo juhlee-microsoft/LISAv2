@@ -2,12 +2,6 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the Apache License.
 #
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-#
 # In this script, we want to bench-mark device IO performance on a mounted folder.
 # You can adapt this script to other situations easily like for stripe disks as RAID0.
 # The only thing to keep in mind is that each different configuration you're testing
@@ -51,13 +45,20 @@ UpdateTestState()
 RunFIO()
 {
 	UpdateTestState $ICA_TESTRUNNING
+	if [ $type == "disk" ]; then
+		mdVolume="/dev/sdc"
+	fi
 	FILEIO="--size=${fileSize} --direct=1 --ioengine=libaio --filename=${mdVolume} --overwrite=1 "
 	if [ -n "${NVME}" ]; then
 		FILEIO="--direct=1 --ioengine=libaio --filename=${nvme_namespaces} --gtod_reduce=1"
 	fi
 	iteration=0
 	io_increment=128
-	NUM_JOBS=(1 1 2 2 4 4 8 8 8 8 8 8)
+	if [ $type == "disk" ]; then
+		NUM_JOBS=(1 1 2 2 4 4)
+	else
+		NUM_JOBS=(1 1 2 2 4 4 8 8 8 8 8 8)
+	fi
 
 	# Log Config
 	mkdir $HOMEDIR/FIOLog/jsonLog

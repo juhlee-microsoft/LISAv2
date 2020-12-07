@@ -136,7 +136,7 @@ function Install_Dpdk_Dependencies() {
 		fi
 		ssh ${install_ip} "yum install --nogpgcheck ${yum_flags} --setopt=skip_missing_names_on_install=False -y gcc make git tar wget dos2unix psmisc kernel-devel-$(uname -r) numactl-devel.x86_64 librdmacm-devel libmnl-devel meson"
 
-	elif [[ "${distro}" == "sles15" ]]; then
+	elif [[ "${distro}" =~ sles15* ]]; then
 		local kernel=$(uname -r)
 		dependencies_install_command="zypper --no-gpg-checks --non-interactive --gpg-auto-import-keys install gcc make git tar wget dos2unix psmisc libnuma-devel numactl librdmacm1 rdma-core-devel libmnl-devel meson"
 		if [[ "${kernel}" == *azure ]]; then
@@ -147,7 +147,7 @@ function Install_Dpdk_Dependencies() {
 		fi
 
 		ssh "${install_ip}" "${dependencies_install_command}"
-		ssh ${install_ip} "ln -sf /usr/include/libmnl/libmnl/libmnl.h /usr/include/libmnl/libmnl.h"
+		ssh "${install_ip}" "ln -sf /usr/include/libmnl/libmnl/libmnl.h /usr/include/libmnl/libmnl.h"
 	else
 		LogErr "ERROR: unsupported distro ${distro} for DPDK on Azure"
 		SetTestStateAborted
@@ -202,7 +202,7 @@ function Install_Dpdk () {
 			if [ $? -eq 0 ]; then
 				packages+=("elfutils-libelf-devel")
 			fi
-			if [ "${DISTRO_NAME}" = "rhel" ]; then
+			if [[ "${DISTRO_NAME}" = "rhel" ]]; then
 				# meson requires ninja-build and python-devel to be installed. [ninja-build ref: https://pkgs.org/download/ninja-build]
 				if [[ ${DISTRO_VERSION} == *"8."* ]]; then
 					ssh "${1}" ". utils.sh && install_package python3-devel"
@@ -214,7 +214,11 @@ function Install_Dpdk () {
 					ssh "${1}" 'PATH=$PATH:/opt/rh/rh-python36/root/usr/bin/ && pip install --upgrade pip && pip install meson'
 				fi
 			else
-				packages+=(meson)
+				if [[ "${DISTRO_NAME}" = "centos" && ${DISTRO_VERSION} == *"8."* ]]; then
+					dnf --enablerepo=PowerTools install -y meson
+				else
+					packages+=(meson)
+				fi
 			fi
 			;;
 		ubuntu|debian)
@@ -244,6 +248,7 @@ function Install_Dpdk () {
 			# default meson in SUSE 15-SP1 is 0.46 & required is 0.47. Installing it separately
 			ssh "${1}" ". utils.sh && install_package ninja"
 			ssh "${1}" "rpm -ivh https://download.opensuse.org/repositories/openSUSE:/Leap:/15.2/standard/noarch/meson-0.54.2-lp152.1.1.noarch.rpm"
+			ssh "${1}" "ln -sf /usr/include/libmnl/libmnl/libmnl.h /usr/include/libmnl/libmnl.h"
 			;;
 		*)
 			echo "Unknown distribution"
@@ -358,10 +363,6 @@ function Install_Dpdk () {
 		ssh ${1} "cd ${LIS_HOME}/${DPDK_DIR}/build && ninja && ninja install && ldconfig"
 		check_exit_status "dpdk build on ${1}" "exit"
 	else
-		ssh "${1}" "sed -i 's/^CONFIG_RTE_LIBRTE_MLX4_PMD=n/CONFIG_RTE_LIBRTE_MLX4_PMD=y/g' $RTE_SDK/config/common_base"
-		check_exit_status "${1} CONFIG_RTE_LIBRTE_MLX4_PMD=y" "exit"
-		ssh "${1}" "sed -i 's/^CONFIG_RTE_LIBRTE_MLX5_PMD=n/CONFIG_RTE_LIBRTE_MLX5_PMD=y/g' $RTE_SDK/config/common_base"
-		check_exit_status "${1} CONFIG_RTE_LIBRTE_MLX5_PMD=y" "exit"
 		if [[ ${DISTRO_NAME} == rhel ]] && ! [[ ${DISTRO_VERSION} == *"8."* ]]; then
 			ssh ${1} "cd ${LIS_HOME}/${DPDK_DIR} && PATH=$PATH:/opt/rh/rh-python36/root/usr/bin/ && meson ${RTE_TARGET}"
 		else
@@ -511,8 +512,8 @@ function Create_Testpmd_Cmd() {
 		exit 1
 	fi
 
-	if [ -z "${DPDK_DIR}" ]; then
-		LogErr "ERROR: DPDK_DIR must be defined before calling Create_Testpmd_Cmd()"
+	if [ -z "${LIS_HOME}" -o -z "${DPDK_DIR}" ]; then
+		LogErr "ERROR: DPDK_DIR and LIS_HOME must be defined before calling Create_Testpmd_Cmd()"
 		SetTestStateAborted
 		exit 1
 	fi
@@ -524,10 +525,16 @@ function Create_Testpmd_Cmd() {
 	local pmd="${5}"
 	local additional_params="${6}"
 
-
+	local dpdk_version=$(Get_DPDK_Version "${LIS_HOME}/${DPDK_DIR}")
+	local pci_param="-w ${busaddr}"
+	local dpdk_version_changed="20.11"
+	if [[ ! $(printf "${dpdk_version_changed}\n${dpdk_version}" | sort -V | head -n1) == "${dpdk_version}" ]]; then
+		pci_param="-a ${busaddr}"
+	fi
 	# partial strings to concat
 	local testpmd="dpdk-testpmd"
 	local eal_opts=""
+	local eal_debug_opts="--log-level=eal,debug --log-level=mlx,debug"
 	case "$pmd" in
 		netvsc)
 			DEV_UUID=$(basename $(readlink /sys/class/net/eth1/device))
@@ -536,10 +543,10 @@ function Create_Testpmd_Cmd() {
 			echo $NET_UUID > /sys/bus/vmbus/drivers/uio_hv_generic/new_id &>/dev/null
 			echo $DEV_UUID > /sys/bus/vmbus/drivers/hv_netvsc/unbind &>/dev/null
 			echo $DEV_UUID > /sys/bus/vmbus/drivers/uio_hv_generic/bind &>/dev/null
-			eal_opts="-l 0-${core} -w ${busaddr} --"
+			eal_opts="-l 0-${core} ${pci_param} ${eal_debug_opts} --log-level=netvsc,debug --"
 			;;
 		failsafe)
-			eal_opts="-l 0-${core} -w ${busaddr} --vdev='net_vdev_netvsc0,iface=${iface}' --"
+			eal_opts="-l 0-${core} ${pci_param} --vdev='net_vdev_netvsc0,iface=${iface}' ${eal_debug_opts} --log-level=failsafe,debug --"
 			;;
 		*)
 			LogMsg "Not supported PMD $pmd. Abort."
@@ -629,6 +636,7 @@ function Testpmd_Multiple_Tx_Flows_Setup() {
 function Testpmd_Macfwd_To_Dest() {
 	local dpdk_version=$(Get_DPDK_Version "${LIS_HOME}/${DPDK_DIR}")
 	local dpdk_version_changed_mac_fwd="19.08"
+	local dpdk_version_changed_mac_fwd2="20.11"
 
 	local ptr_code="struct ipv4_hdr *ipv4_hdr;"
 	local offload_code="ol_flags |= PKT_TX_IP_CKSUM; ol_flags |= PKT_TX_IPV4;"
@@ -644,9 +652,15 @@ function Testpmd_Macfwd_To_Dest() {
 		LogMsg "Using legacy forwarding code insertion"
 	fi
 
+	# TODO: Replace line number updates with actual code
 	sed -i "53i ${ptr_code}" app/test-pmd/macfwd.c
-	sed -i "90i ${offload_code}" app/test-pmd/macfwd.c
-	sed -i "101i ${dst_addr_code}" app/test-pmd/macfwd.c
+	if [[ ! $(printf "${dpdk_version_changed_mac_fwd2}\n${dpdk_version}" | sort -V | head -n1) == "${dpdk_version}" ]]; then
+		sed -i "82i ${offload_code}" app/test-pmd/macfwd.c
+		sed -i "93i ${dst_addr_code}" app/test-pmd/macfwd.c
+	else
+		sed -i "90i ${offload_code}" app/test-pmd/macfwd.c
+		sed -i "101i ${dst_addr_code}" app/test-pmd/macfwd.c
+	fi
 }
 
 function Get_DPDK_Version() {

@@ -978,6 +978,7 @@
     <files>.\Testscripts\Linux\utils.sh,.\Testscripts\Linux\XDPUtils.sh,.\Testscripts\Linux\XDPDumpSetup.sh,.\Testscripts\Linux\XDPForwardingTest.sh</files>
     <TestParameters>
       <param>cores=multi</param>
+      <param>dpdkSrcLink="DPDK_SOURCE_URL"</param>
     </TestParameters>
     <Platform>Azure</Platform>
     <Category>Performance</Category>
@@ -996,6 +997,7 @@
     <files>.\Testscripts\Linux\utils.sh,.\Testscripts\Linux\XDPUtils.sh,.\Testscripts\Linux\XDPDumpSetup.sh,.\Testscripts\Linux\XDPForwardingTest.sh</files>
     <TestParameters>
       <param>cores=single</param>
+      <param>dpdkSrcLink="DPDK_SOURCE_URL"</param>
     </TestParameters>
     <Platform>Azure</Platform>
     <Category>Performance</Category>
@@ -1011,9 +1013,9 @@
   <test>
     <testName>PERF-XDP-FORWARD-COMPARISON</testName>
     <testScript>PERF-XDP-TX-FORWARD.ps1</testScript>
-    <files>.\Testscripts\Linux\utils.sh,.\Testscripts\Linux\XDPUtils.sh,.\Testscripts\Linux\XDPDumpSetup.sh,.\Testscripts\Linux\XDPForwardingTest.sh</files>
+    <files>.\Testscripts\Linux\utils.sh,.\Testscripts\Linux\XDPUtils.sh,.\Testscripts\Linux\XDPDumpSetup.sh,.\Testscripts\Linux\XDPForwardingTest.sh,.\Testscripts\Linux\dpdkUtils.sh</files>
     <TestParameters>
-      <param>cores=single</param>
+      <param>dpdkSrcLink="DPDK_SOURCE_URL"</param>
     </TestParameters>
     <Platform>Azure</Platform>
     <Category>Performance</Category>
@@ -1024,6 +1026,35 @@
       <SetupType>ThreeVM2NIC</SetupType>
       <OverrideVMSize>Standard_D64_v3</OverrideVMSize>
       <Networking>SRIOV</Networking>
+    </SetupConfig>
+  </test>
+  <test>
+    <testName>PERF-STORAGE-DISK-IO</testName>
+    <testScript>PERF-STORAGE-MULTIDISK-RAID0-FIO.ps1</testScript>
+    <files>.\Testscripts\Linux\utils.sh,.\Testscripts\Linux\perf_fio.sh,.\Testscripts\Linux\fio_jason_parser.sh,.\Testscripts\Linux\JSON.awk,.\Tools\gawk</files>
+    <TestParameters>
+      <param>modes=PERF-STORAGE-4K-IO-MODES</param>
+      <param>startQDepth=1</param>
+      <param>maxQDepth=64</param>
+      <param>startIO=4</param>
+      <param>ioruntime=FIO_RUNTIME_IN_SECONDS</param>
+      <param>maxIO=4</param>
+      <param>fileSize=1023G</param>
+      <param>PHYSICAL_NUMBER=1</param>
+      <param>SCSI=1,1,RAID</param>
+      <param>parseTimeout=FIO_LOG_PARSE_TIMEOUT</param>
+      <param>type=disk</param>
+    </TestParameters>
+    <cleanupScript>.\Testscripts\Windows\RemoveHardDisk.ps1</cleanupScript>
+    <Platform>Azure,HyperV</Platform>
+    <Category>Performance</Category>
+    <Area>STORAGE</Area>
+    <Tags>hv_storvsc,storage</Tags>
+    <Priority>1</Priority>
+    <SetupConfig>
+      <StorageAccountType>PERF_STORAGE_ACCOUNT_TYPE</StorageAccountType>
+      <SetupType>OneVM24Disk</SetupType>
+      <SetupScript>.\Testscripts\Windows\SETUP-Check-PowerPlan.ps1,.\Testscripts\Windows\AddHardDisk.ps1</SetupScript>
     </SetupConfig>
   </test>
 </TestCases>
